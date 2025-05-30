@@ -1,0 +1,14 @@
+# Managed by Ansible
+
+#deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.gpg] {{ docker_repo_url }}/{{ docker_apt_ansible_distribution | lower }} {{ ansible_distribution_release }} {{ docker_apt_release_channel }}
+# deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable
+
+
+X-Repolib-Name: Docker
+Enabled: yes
+URIs: {{ docker_repo_url }}/{{ docker_apt_ansible_distribution | lower }}
+Types: deb
+Suites: {{ ansible_distribution_release }}
+Components: {{ docker_apt_release_channel }}
+Architectures: amd64 arm64 armhf
+Signed-By: /etc/apt/keyrings/docker.gpg

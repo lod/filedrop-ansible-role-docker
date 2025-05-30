@@ -1,0 +1,3 @@
+---
+collections:
+ - name: git+file:///home/lod/projects/filedrop2/

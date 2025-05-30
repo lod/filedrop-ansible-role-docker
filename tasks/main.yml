@@ -10,60 +10,46 @@
       paths:
         - 'vars'
 
-- include_tasks: setup-RedHat.yml
+# I don't think this can be avoided by dropping a file, needs to be in the rpm database
+- name: Add Docker GPG key.
+  rpm_key:
+    key: "{{ docker_yum_gpg_key }}"
+    state: present
+  when:
+    - ansible_os_family == 'RedHat'
+    - docker_add_repo | bool
+
+- name: Configure Redhat based system packages
+  lod.filedrop.filedrop:
+    src: redhat
   when: ansible_os_family == 'RedHat'
 
-- include_tasks: setup-Debian.yml
+- name: Configure Debian based system packages
+  lod.filedrop.filedrop:
+    src: debian
   when: ansible_os_family == 'Debian'
+
+
+- name: Ensure old versions of Docker are not installed.
+  package:
+    name: "{{ docker_obsolete_packages }}"
+    state: absent
+
 
 - name: Install Docker packages.
   package:
-    name: "{{ docker_packages }}"
+    name: "{{ docker_packages + additional_packages }}"
     state: "{{ docker_packages_state }}"
+    allow_downgrade: "{{ True if allow_downgrade else omit }}"
+    update_cache: true
   notify: restart docker
   ignore_errors: "{{ ansible_check_mode }}"
-  when: "ansible_version.full is version_compare('2.12', '<') or ansible_os_family not in ['RedHat', 'Debian']"
+  vars:
+    additional_packages: "{{ [docker_compose_package] if docker_install_compose_plugin else [] }}"
+    allow_downgrade: "{{ ansible_version.full is version_compare('2.12', '>=') and ansible_os_family in ['RedHat', 'Debian'] }}"
 
-- name: Install Docker packages (with downgrade option).
-  package:
-    name: "{{ docker_packages }}"
-    state: "{{ docker_packages_state }}"
-    allow_downgrade: true
-  notify: restart docker
-  ignore_errors: "{{ ansible_check_mode }}"
-  when: "ansible_version.full is version_compare('2.12', '>=') and ansible_os_family in ['RedHat', 'Debian']"
-
-- name: Install docker-compose plugin.
-  package:
-    name: "{{ docker_compose_package }}"
-    state: "{{ docker_compose_package_state }}"
-  notify: restart docker
-  ignore_errors: "{{ ansible_check_mode }}"
-  when: "docker_install_compose_plugin | bool == true and (ansible_version.full is version_compare('2.12', '<') or ansible_os_family not in ['RedHat', 'Debian'])"
-
-- name: Install docker-compose-plugin (with downgrade option).
-  package:
-    name: "{{ docker_compose_package }}"
-    state: "{{ docker_compose_package_state }}"
-    allow_downgrade: true
-  notify: restart docker
-  ignore_errors: "{{ ansible_check_mode }}"
-  when: "docker_install_compose_plugin | bool == true and ansible_version.full is version_compare('2.12', '>=') and ansible_os_family in ['RedHat', 'Debian']"
-
-- name: Ensure /etc/docker/ directory exists.
-  file:
-    path: /etc/docker
-    state: directory
-    mode: 0755
-  when: docker_daemon_options.keys() | length > 0
-
-- name: Configure Docker daemon options.
-  copy:
-    content: "{{ docker_daemon_options | to_nice_json }}"
-    dest: /etc/docker/daemon.json
-    mode: 0644
-  when: docker_daemon_options.keys() | length > 0
-  notify: restart docker
+- name: Configure docker
+  lod.filedrop.filedrop:
 
 - name: Ensure Docker is started and enabled at boot.
   service:
@@ -76,23 +62,10 @@
 - name: Ensure handlers are notified now to avoid firewall conflicts.
   meta: flush_handlers
 
-- include_tasks: docker-compose.yml
-  when: docker_install_compose | bool
-
-- name: Get docker group info using getent.
-  getent:
-    database: group
-    key: docker
-    split: ':'
-  when: docker_users | length > 0
-
-- name: Check if there are any users to add to the docker group.
-  set_fact:
-    at_least_one_user_to_modify: true
-  when:
-    - docker_users | length > 0
-    - item not in ansible_facts.getent_group["docker"][2]
+- name: Ensure users are members of the docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
   with_items: "{{ docker_users }}"
-
-- include_tasks: docker-users.yml
-  when: at_least_one_user_to_modify is defined
+  notify: reset ssh connection
